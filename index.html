@@ -31,6 +31,21 @@
 <canvas id="game" tabindex="0"></canvas>
 <div id="status">Loading</div>
 <div id="focus">Click the game to keep playing</div>
+<script>
+  // The resolution cap (see below): the page reports a capped pixel ratio
+  // to everything, Rive included. (Passing the cap to Rive's
+  // resizeDrawingSurfaceToCanvas instead broke the game's offscreen images:
+  // the middle of the ground came out shifted and stretched, 2026-11-15.)
+  (function () {
+    const cap = parseFloat(new URLSearchParams(location.search).get('dpr')) || 1.5;
+    const real = Object.getOwnPropertyDescriptor(Window.prototype, 'devicePixelRatio') ||
+      Object.getOwnPropertyDescriptor(window, 'devicePixelRatio');
+    const getReal = real && real.get ? () => real.get.call(window) : () => 1;
+    try {
+      Object.defineProperty(window, 'devicePixelRatio', { get: () => Math.min(getReal(), cap), configurable: true });
+    } catch (e) { /* the cap is lost, the game still runs */ }
+  })();
+</script>
 <script src="https://cdn.jsdelivr.net/npm/@rive-app/webgl2-threads@2.50.0/rive.js"></script>
 <script>
   // Say Your Prayers, played in the browser (made in Rive).
@@ -39,11 +54,10 @@
   // draws this game in its 4x MSAA mode (the art's clipping needs it), so the
   // cost grows with the screen's pixels. On a Retina or 4K/5K screen that
   // halved the frame rate. This page caps the drawing resolution
-  // (MAX_PIXEL_RATIO); measured 2026-11-15 in Chrome on an M4: 60 fps at a
+  // (the script just above rive.js); measured 2026-11-15 in Chrome on an M4: 60 fps at a
   // cap of 1.5 even on a 3x screen, 33 fps uncapped. Override with ?dpr=2.
   // The page must be cross-origin isolated (see coi-serviceworker.js above).
   const params = new URLSearchParams(location.search);
-  const MAX_PIXEL_RATIO = parseFloat(params.get('dpr')) || 1.5;
   const GAME_FILE = 'game.riv';
 
   const canvas = document.getElementById('game');
@@ -51,8 +65,8 @@
   const focusHint = document.getElementById('focus');
   let game = null;
 
-  function pixelRatio() { return Math.min(window.devicePixelRatio || 1, MAX_PIXEL_RATIO); }
-  function resize() { if (game) game.resizeDrawingSurfaceToCanvas(pixelRatio()); }
+  function pixelRatio() { return window.devicePixelRatio || 1; } // already capped
+  function resize() { if (game) game.resizeDrawingSurfaceToCanvas(); }
 
   // Download the game with a progress readout, then start it.
   async function load() {
