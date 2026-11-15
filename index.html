@@ -1,0 +1,105 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Say Your Prayers</title>
+<meta name="description" content="A typing horror shooter. Type the prayers, hold the churchyard.">
+<style>
+  html, body { margin: 0; height: 100%; background: #000; overflow: hidden; }
+  canvas { display: block; width: 100vw; height: 100vh; outline: none; touch-action: none; }
+  #status {
+    position: fixed; inset: 0; display: flex; align-items: center; justify-content: center;
+    color: #8e959c; font: 600 14px/1 system-ui, sans-serif; letter-spacing: 3px; text-transform: uppercase;
+    pointer-events: none; transition: opacity 0.4s;
+  }
+  #status.hidden { opacity: 0; }
+  #focus {
+    position: fixed; left: 50%; bottom: 24px; transform: translateX(-50%);
+    color: #d9b870; background: rgba(0, 0, 0, 0.75); padding: 10px 18px; border-radius: 6px;
+    font: 600 13px/1 system-ui, sans-serif; letter-spacing: 3px; text-transform: uppercase;
+    pointer-events: none; display: none;
+  }
+</style>
+</head>
+<body>
+<canvas id="game" tabindex="0"></canvas>
+<div id="status">Loading</div>
+<div id="focus">Click the game to keep playing</div>
+<script src="https://cdn.jsdelivr.net/npm/@rive-app/webgl2-threads@2.50.0/rive.js"></script>
+<script>
+  // Say Your Prayers, played in the browser (made in Rive).
+  //
+  // Why this page and not Rive's hosted one: in a browser, the Rive renderer
+  // draws this game in its 4x MSAA mode (the art's clipping needs it), so the
+  // cost grows with the screen's pixels. On a Retina or 4K/5K screen that
+  // halved the frame rate. This page caps the drawing resolution
+  // (MAX_PIXEL_RATIO); measured 2026-11-15 in Chrome on an M4: 60 fps at a
+  // cap of 1.5 even on a 3x screen, 33 fps uncapped. Override with ?dpr=2.
+  const params = new URLSearchParams(location.search);
+  const MAX_PIXEL_RATIO = parseFloat(params.get('dpr')) || 1.5;
+  const GAME_FILE = 'game.riv';
+
+  const canvas = document.getElementById('game');
+  const status = document.getElementById('status');
+  const focusHint = document.getElementById('focus');
+  let game = null;
+
+  function pixelRatio() { return Math.min(window.devicePixelRatio || 1, MAX_PIXEL_RATIO); }
+  function resize() { if (game) game.resizeDrawingSurfaceToCanvas(pixelRatio()); }
+
+  // Download the game with a progress readout, then start it.
+  async function load() {
+    const response = await fetch(GAME_FILE);
+    if (!response.ok) throw new Error('HTTP ' + response.status);
+    const total = Number(response.headers.get('content-length')) || 0;
+    const reader = response.body.getReader();
+    const chunks = [];
+    let received = 0;
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      chunks.push(value);
+      received += value.length;
+      if (total) status.textContent = 'Loading ' + Math.floor(received / total * 100) + '%';
+    }
+    const bytes = new Uint8Array(received);
+    let at = 0;
+    for (const c of chunks) { bytes.set(c, at); at += c.length; }
+    status.textContent = 'Starting';
+    game = new rive.Rive({
+      buffer: bytes.buffer,
+      canvas,
+      stateMachine: 'Game SM',
+      autoplay: true,
+      autoBind: true,
+      enableGPUCanvas: true,
+      layout: new rive.Layout({ fit: rive.Fit.Contain, alignment: rive.Alignment.Center }),
+      onLoad: () => {
+        resize();
+        canvas.focus({ preventScroll: true });
+        status.classList.add('hidden');
+      },
+      onLoadError: () => { status.textContent = 'The game could not be loaded'; },
+    });
+  }
+  load().catch(() => { status.textContent = 'The game could not be loaded. Refresh to try again'; });
+
+  window.addEventListener('resize', resize);
+
+  // Keep keys in the game: no page scrolling (space, arrows) and no browser
+  // shortcuts that steal typing (Firefox opens quick find on ' and /).
+  const BLOCKED = new Set(['Space', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight',
+    'Quote', 'Slash', 'Backquote', 'Backspace', 'Tab', 'PageUp', 'PageDown', 'Home', 'End']);
+  window.addEventListener('keydown', (e) => {
+    if (BLOCKED.has(e.code) && !e.metaKey && !e.ctrlKey && !e.altKey) e.preventDefault();
+  });
+
+  // Clicking the game gives it the keyboard; when it loses the keyboard
+  // (clicked outside, in an embedding page), say so.
+  canvas.addEventListener('pointerdown', () => canvas.focus({ preventScroll: true }));
+  canvas.addEventListener('blur', () => { if (game) focusHint.style.display = 'block'; });
+  canvas.addEventListener('focus', () => { focusHint.style.display = 'none'; });
+</script>
+</body>
+</html>
