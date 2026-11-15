@@ -21,6 +21,11 @@
     pointer-events: none; display: none;
   }
 </style>
+<!-- The game only draws when the page is "cross-origin isolated" (Rive's
+     threaded mode; without it the screen stays black, 2026-11-15). GitHub
+     Pages can't send the headers for that, so this service worker adds them
+     and reloads the page once. MIT, github.com/gzuidhof/coi-serviceworker. -->
+<script src="coi-serviceworker.js"></script>
 </head>
 <body>
 <canvas id="game" tabindex="0"></canvas>
@@ -36,6 +41,7 @@
   // halved the frame rate. This page caps the drawing resolution
   // (MAX_PIXEL_RATIO); measured 2026-11-15 in Chrome on an M4: 60 fps at a
   // cap of 1.5 even on a 3x screen, 33 fps uncapped. Override with ?dpr=2.
+  // The page must be cross-origin isolated (see coi-serviceworker.js above).
   const params = new URLSearchParams(location.search);
   const MAX_PIXEL_RATIO = parseFloat(params.get('dpr')) || 1.5;
   const GAME_FILE = 'game.riv';
@@ -83,7 +89,17 @@
       onLoadError: () => { status.textContent = 'The game could not be loaded'; },
     });
   }
-  load().catch(() => { status.textContent = 'The game could not be loaded. Refresh to try again'; });
+  // Not isolated yet: the service worker is about to reload the page, so
+  // don't download the game twice. (Only wait once per visit, in case it
+  // can't: a private window may have no service workers.)
+  const waitForWorker = window.crossOriginIsolated === false && window.isSecureContext &&
+    'serviceWorker' in navigator && !sessionStorage.getItem('coiWaited');
+  if (waitForWorker) {
+    sessionStorage.setItem('coiWaited', '1');
+    setTimeout(() => location.reload(), 4000); // if the worker never reloads us
+  } else {
+    load().catch(() => { status.textContent = 'The game could not be loaded. Refresh to try again'; });
+  }
 
   window.addEventListener('resize', resize);
 
