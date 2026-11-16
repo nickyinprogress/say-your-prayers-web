@@ -46,6 +46,23 @@
     } catch (e) { /* the cap is lost, the game still runs */ }
   })();
 </script>
+<script>
+  // Sound: browsers start every AudioContext paused until the player presses
+  // a key or clicks. Rive makes its contexts as the game loads, and only
+  // one of them woke on the first key: the game was silent (2026-11-16). So
+  // the page keeps a list of every context and wakes them all on each input.
+  (function () {
+    const Real = window.AudioContext || window.webkitAudioContext;
+    if (!Real) return;
+    const contexts = [];
+    const Tracked = function (...args) { const c = new Real(...args); contexts.push(c); return c; };
+    Tracked.prototype = Real.prototype;
+    window.AudioContext = Tracked;
+    if (window.webkitAudioContext) window.webkitAudioContext = Tracked;
+    const wake = () => contexts.forEach((c) => { if (c.state === 'suspended') c.resume().catch(() => {}); });
+    ['pointerdown', 'keydown', 'touchend'].forEach((t) => window.addEventListener(t, wake, true));
+  })();
+</script>
 <script src="https://cdn.jsdelivr.net/npm/@rive-app/webgl2-threads@2.50.0/rive.js"></script>
 <script>
   // Say Your Prayers, played in the browser (made in Rive).
@@ -87,8 +104,13 @@
     let at = 0;
     for (const c of chunks) { bytes.set(c, at); at += c.length; }
     status.textContent = 'Starting';
+    // Loaded as a RiveFile first, the way Rive's hosted page does: handing
+    // the bytes straight to rive.Rive left the game silent (its script
+    // audio never started; 2026-11-16).
+    const file = new rive.RiveFile({ buffer: bytes.buffer, enableGPUCanvas: true });
+    await file.init();
     game = new rive.Rive({
-      buffer: bytes.buffer,
+      riveFile: file,
       canvas,
       stateMachine: 'Game SM',
       autoplay: true,
